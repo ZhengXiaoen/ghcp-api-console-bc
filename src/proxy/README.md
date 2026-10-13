@@ -100,7 +100,8 @@ Proxy 通过 `dotenv/config` 读取环境变量。未设置时使用 `src/config
 | `INTERNAL_API_TOKEN` | 空字符串 / `change-me` | 是 | `/api`、`/internal` 鉴权；同时用于 Proxy 调用 SSO/Login 服务。 |
 | `SSO_BASE_URL` | `http://localhost:7001` / 同 | 否 | SSO 服务地址；用于确保用户、读取 SSO 用户、同步 EMU。 |
 | `LOGIN_BASE_URL` | `http://localhost:7003` / 同 | 否 | Login 服务地址；用于创建 Copilot OAuth 重新授权任务。 |
-| `ENTERPRISE_SHORTCODE` | `octo` / `octo` | 否 | 初始化身份时从规范化 identity 末尾剥离 `_<shortcode>`，生成 SSO 用户名。 |
+| `ENTERPRISE_SHORTCODE` | `octo` / `octo` | 否 | 初始化身份时从规范化 identity 末尾剥离 `_<shortcode>`，生成 SSO 用户名。GHE.com 模式下忽略（GH login 不带后缀）。 |
+| `GITHUB_BASE_URL` | `https://github.com` / 同 | 否 | GitHub Web origin；host 以 `.ghe.com` 结尾时为 GHE.com 模式，忽略 `ENTERPRISE_SHORTCODE`。 |
 | `REQUEST_STATS_PER_ACCOUNT_LIMIT` | `2` / `2` | 否 | 每个 identity 保留的请求统计条数；必须为正整数。 |
 | `PROXY_ERROR_DIAGNOSTICS_ENABLED` | `true` / `true` | 否 | 是否保存 Copilot 上游失败诊断。关闭后控制台错误摘要仍会输出。 |
 | `PROXY_ERROR_DIAGNOSTICS_DIR` | `./data/error-diagnostics` / 同 | 否 | 轮转文本日志目录；Compose 使用 `/data/error-diagnostics`。 |
@@ -109,7 +110,7 @@ Proxy 通过 `dotenv/config` 读取环境变量。未设置时使用 `src/config
 | `PROXY_ERROR_DIAGNOSTICS_MAX_FILES` | `5` / `5` | 否 | 包含当前文件在内的最大轮转文件数；必须为正整数。 |
 | `PROXY_ERROR_DIAGNOSTICS_SHARED` | `false` / `false` | 否 | 在多 Pod 共用 RWX 根目录时启用实例隔离写入和聚合读取。 |
 | `PROXY_INSTANCE_ID` | `HOSTNAME` / 空 | 共享诊断模式 | 当前 Pod 的安全目录标识；Kubernetes 建议通过 Downward API 注入 Pod 名。 |
-| `COPILOT_API_BASE_URL` | `https://api.githubcopilot.com` / 同 | 否 | GitHub.com Copilot API base URL。 |
+| `COPILOT_API_BASE_URL` | `https://api.githubcopilot.com` / 同 | 否 | Copilot API base URL；GitHub.com 用默认值，GHE.com 为 `https://copilot-api.<sub>.ghe.com`。 |
 | `OPENCODE_VERSION` | `1.0.0` / `1.18.4` | 否 | 生成 `User-Agent: opencode/<version>`。 |
 | `OPENCODE_USER_AGENT` | 未设置 / 未设置 | 否 | 显式覆盖完整 User-Agent；非空时优先于 `OPENCODE_VERSION`。 |
 | `GITHUB_API_VERSION` | `2026-06-01` / 同 | 否 | `X-GitHub-Api-Version` 请求头。 |

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { deviceFlowEndpoints, resolveGithubDeployment, type GithubDeployment } from './auth/githubUrls.js';
 
 export interface LoginConfig {
   port: number;
@@ -19,6 +20,7 @@ export interface LoginConfig {
 export type SsoProvider = 'custom' | 'azure';
 
 export interface AuthConfig {
+  github: GithubDeployment;
   ssoUrl?: string;
   azureStaySignedIn: boolean;
   headless: boolean;
@@ -33,6 +35,8 @@ export interface RuntimeAuthConfig extends AuthConfig {
   debugArtifacts: boolean;
 }
 
+const github = resolveGithubDeployment(process.env.GITHUB_BASE_URL, process.env.ENTERPRISE_SLUG);
+
 export const config: LoginConfig = {
   port: readPort(process.env.PORT, 7003),
   dbPath: process.env.DB_PATH ?? './data/login.sqlite',
@@ -43,11 +47,9 @@ export const config: LoginConfig = {
   githubOauthScope: readOptionalString(process.env.GITHUB_OAUTH_SCOPE) ?? 'read:user',
   opencodeUserAgent: readOptionalString(process.env.OPENCODE_USER_AGENT)
     ?? `opencode/${readOptionalString(process.env.OPENCODE_VERSION) ?? '1.0.0'}`,
-  endpoints: {
-    deviceCode: 'https://github.com/login/device/code',
-    accessToken: 'https://github.com/login/oauth/access_token',
-  },
+  endpoints: deviceFlowEndpoints(github),
   auth: {
+    github,
     ssoUrl: process.env.SSO_URL,
     azureStaySignedIn: readBoolean(process.env.AZURE_STAY_SIGNED_IN, false),
     headless: readBoolean(process.env.AUTH_HEADLESS, true),

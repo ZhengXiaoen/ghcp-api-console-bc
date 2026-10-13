@@ -6,7 +6,7 @@
 
 - **登录任务队列**：`POST /api/tasks` 创建任务，内存队列按 DB 运行时设置控制并发；任务元数据持久化到 SQLite。
 - **任务状态管理**：状态包括 `pending`、`running`、`cancelling`、`success`、`failed`、`cancelled`；支持完整筛选、批量预览、独立尝试历史和实际队列快照。重启时未完成任务直接标记为中断（取消中的标记为已取消）并通知 Proxy 放弃对应 attempt，不自动重放；若 token 在重启前已写回，Proxy 因 attempt 已清空会忽略该通知，账号保持可用，只是任务记录显示中断。
-- **Device flow + Playwright 自动授权**：先请求 GitHub device code，再用 `playwright-extra` + stealth 插件打开验证页，处理 GitHub 账号选择、GitHub 登录、企业 SSO 中转、自定义 SSO 或 Azure SSO，最后轮询 access token。**这是最消耗资源的部分，单次登陆大约1分钟**。
+- **Device flow + Playwright 自动授权**：先请求 GitHub device code，再用 `playwright-extra` + stealth 插件打开验证页，处理 GitHub 账号选择、GitHub 登录、企业 SSO 中转、自定义 SSO 或 Azure SSO，最后轮询 access token。支持 GitHub.com 和 GHE.com（data residency），见下方“GitHub.com 与 GHE.com”。**这是最消耗资源的部分，单次登陆大约1分钟**。
 - **尝试级日志与调试产物**：每次任务尝试使用独占日志文件；可开启 debug 日志、失败截图和 trace，旧账号级日志仅保留为不完整历史。
 - **Token 回传 Proxy**：成功时调用 `proxy` 的 `/internal/accounts/:identity/copilot-oauth-token` 保存 token；失败时调用 `/internal/accounts/:identity/mark-copilot-oauth-failed` 标记失败。
 - **单账号调试命令**：`login:copilot-oauth` 可跳过任务队列，直接登录并把原始 Copilot OAuth token 输出到 stdout。
@@ -96,7 +96,9 @@ Linux 下如需访问宿主机的 proxy，可能还要给 Docker 增加 `--add-h
 | `INTERNAL_API_TOKEN` | 空字符串 | **是** | `/api/*` 入站认证和调用 proxy 的 `X-Internal-Token`；必须与 proxy/console 使用同一值。未设置时内部 API 会拒绝访问。`.env.example` 已提供示例。 |
 | `PROXY_BASE_URL` | `http://localhost:3000` | 视环境 | Token 成功/失败回写的 proxy 地址。 |
 | `LOG_DIR` | `./logs/login` | 否 | 账号级登录日志目录。 |
-| `GITHUB_OAUTH_CLIENT_ID` | `Ov23li8tweQw6odWQebz` | 否 | OpenCode GitHub Device Flow OAuth client id。 |
+| `GITHUB_BASE_URL` | `https://github.com` | 否 | GitHub Web origin。Device Flow 端点为 `<GITHUB_BASE_URL>/login/device/code` 和 `/login/oauth/access_token`；host 以 `.ghe.com` 结尾时启用 GHE.com 模式。只能是 origin，不能带路径。 |
+| `ENTERPRISE_SLUG` | 当前未配置 | GHE.com 必填 | GHE.com 模式下拼出 enterprise SSO 入口 `<GITHUB_BASE_URL>/enterprises/<ENTERPRISE_SLUG>/sso`；缺失时启动报错。GitHub.com 模式不使用。 |
+| `GITHUB_OAUTH_CLIENT_ID` | `Ov23li8tweQw6odWQebz` | 否 | OpenCode GitHub Device Flow OAuth client id；GHE.com 使用同一个 client id。 |
 | `GITHUB_OAUTH_SCOPE` | `read:user` | 否 | GitHub Device Flow 请求 scope。 |
 | `OPENCODE_VERSION` | `1.0.0` | 否 | 生成 `User-Agent: opencode/<version>`。 |
 | `OPENCODE_USER_AGENT` | 当前未配置 | 否 | 显式覆盖完整 User-Agent；非空时优先于 `OPENCODE_VERSION`。 |
@@ -114,7 +116,19 @@ Linux 下如需访问宿主机的 proxy，可能还要给 Docker 增加 `--add-h
 - 通用 SSO：`AUTH_SSO_USERNAME_INPUT_SELECTOR`、`AUTH_SSO_PASSWORD_INPUT_SELECTOR`、`AUTH_SSO_SUBMIT_SELECTOR`
 - Azure SSO：`AUTH_AZURE_USERNAME_INPUT_SELECTOR`、`AUTH_AZURE_NEXT_SUBMIT_SELECTOR`、`AUTH_AZURE_PASSWORD_INPUT_SELECTOR`、`AUTH_AZURE_SIGN_IN_SUBMIT_SELECTOR`、`AUTH_AZURE_STAY_SIGNED_IN_YES_SELECTOR`、`AUTH_AZURE_STAY_SIGNED_IN_NO_SELECTOR`
 
-本模块 `.env.example` 只保留 login 服务会读取的变量；不要加入 proxy/sso 专属配置，例如 `API_KEY`、`SCIM_TOKEN`、`ENTERPRISE_SLUG`、`SP_ENTITY_ID`。
+本模块 `.env.example` 只保留 login 服务会读取的变量；不要加入 proxy/sso 专属配置，例如 `API_KEY`、`SCIM_TOKEN`、`SP_ENTITY_ID`。`ENTERPRISE_SLUG` 只在 GHE.com 模式下由 login 读取。
+
+### GitHub.com 与 GHE.com
+
+| 步骤 | GitHub.com（默认） | GHE.com（`GITHUB_BASE_URL=https://<sub>.ghe.com`） |
+| --- | --- | --- |
+| Device code / token 端点 | `https://github.com/login/device/code`、`/login/oauth/access_token` | `https://<sub>.ghe.com/login/device/code`、`/login/oauth/access_token` |
+| 登录入口 | 打开 device 验证页，按需输入 GitHub 用户名（`ghLogin`），跳转企业 SSO | 先直接打开 `https://<sub>.ghe.com/enterprises/<slug>/sso`，点击 **Continue** 跳到 SSO 登录页；不输入 GitHub 用户名 |
+| SSO 登录 | 自定义 SSO 或 Azure 表单 | 相同 |
+| 填 device code 与授权 | 在 `github.com` 完成 | 回到 `<sub>.ghe.com` 后打开 device 验证页填码、授权 |
+| 识别为 GitHub 的域名 | `github.com`、`*.github.com` | `<sub>.ghe.com`、`*.<sub>.ghe.com`、`auth.ghe.com` |
+
+GHE.com 模式下若 device 验证页仍跳回 `/login` 或 enterprise SSO 中间页，会再走一次 Continue → SSO 登录作为兜底。GHE.com 上 `ghLogin` 由 SSO 生成且不带 shortcode 后缀（如 `alice`），任务仍要求提供，但只用于账号选择页匹配和日志。
 
 ### `.env` 与 runtime Settings
 
@@ -189,7 +203,7 @@ Login task 历史没有自动 retention。可按终态和 `finishedBefore` 手�
 
 ### 对外依赖边界
 
-- GitHub：调用 `https://github.com/login/device/code` 和 `https://github.com/login/oauth/access_token`。
+- GitHub：调用 `<GITHUB_BASE_URL>/login/device/code` 和 `<GITHUB_BASE_URL>/login/oauth/access_token`（默认 `https://github.com`；GHE.com 为 `https://<sub>.ghe.com`）。
 - Proxy：通过 `PROXY_BASE_URL` 调用内部接口：
   - `POST /internal/accounts/:identity/oauth-attempts/:attemptId/prepare`，body 含凭据模式、账号映射、`ssoType` 与 `previousAttemptId`（任务上一次的 attempt，账号当前 attempt 不一致时 Proxy 返回 `409 authorization_conflict`）；Proxy 解析本次凭据并把账号切到新 attempt。
   - `PUT /internal/accounts/:identity/copilot-oauth-token`，body `{ oauthAttemptId, copilotOauthToken, ghLogin }`
@@ -249,6 +263,7 @@ src/login/
     ├── auth/
     │   ├── internalAuth.ts    # X-Internal-Token 校验
     │   ├── deviceFlow.ts      # GitHub device code 与 token polling
+    │   ├── githubUrls.ts      # GITHUB_BASE_URL 解析、GHE.com 判定、GitHub 域名/页面识别
     │   ├── HeadlessPlaywrightAuthStrategy.ts
     │   └── types.ts
     ├── clients/proxyClient.ts # 重试准备、token 成功/失败回写
@@ -265,4 +280,4 @@ src/login/
 - 队列是进程内的；当前未提供多实例分布式锁。共享同一个 SQLite 运行多个 login 实例需要额外设计。
 - 调试失败优先看任务的 `logPath`；复杂页面问题可用 `AUTH_HEADLESS=false`，并在 Console Settings 中开启 debug logs 和 debug artifacts。
 - `selectorOverrides` 只影响单个任务，适合临时适配页面变更；稳定规则建议放到环境变量。
-- 文档只确认了当前代码已有能力；当前未提供 metrics 或 OpenAPI 描述。测试可运行 `npm --workspace @ghcp/login run test`。
+- 文档只确认了当前代码已有能力；当前未提供 metrics 或 OpenAPI 描述。测试可运行 `npm --workspace @ghcp/login run test`；真实浏览器测试（取消流程、GHE.com 登录流程，使用本地假 GHE/SSO 页面）运行 `npm --workspace @ghcp/login run test:browser`。

@@ -2,6 +2,7 @@
 **/.env
 **/*.env*
 !**/.env.example
+!.env.example.data-residency
 **/data/*.sqlite
 **/data/*.sqlite-shm
 **/data/*.sqlite-wal

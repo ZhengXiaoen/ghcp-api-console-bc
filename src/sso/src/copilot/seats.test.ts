@@ -26,6 +26,16 @@ test('identifies a missing Copilot seat without hiding other cancellation errors
     );
 
     globalThis.fetch = async () => jsonResponse(422, {
+      message: 'One or more seat assignments could not be cancelled: User is not assigned to a seat',
+      documentation_url: 'https://docs.github.com/rest/copilot/copilot-user-management#remove-users-from-the-copilot-subscription-for-an-enterprise',
+      status: '422',
+    });
+    await assert.rejects(
+      removeCopilotSeat('wangwu_selfsso'),
+      (err: unknown) => err instanceof CopilotSeatNotAssignedError && err.status === 422,
+    );
+
+    globalThis.fetch = async () => jsonResponse(422, {
       message: 'The seat cannot be cancelled because it was assigned through a team.',
     });
     await assert.rejects(

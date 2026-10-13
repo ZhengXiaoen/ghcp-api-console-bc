@@ -34,6 +34,9 @@ export function startServer(): void {
   getDb();
   const server = buildApp().listen(config.port, () => {
     console.log(`[sso] listening on ${config.baseUrl}`);
+    console.log(config.gheCom
+      ? `[sso] GitHub: ${config.githubBaseUrl} (GHE.com; ENTERPRISE_SHORTCODE is ignored and GH logins carry no shortcode suffix)`
+      : `[sso] GitHub: ${config.githubBaseUrl} (GH login suffix _${config.enterpriseShortcode})`);
   });
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {

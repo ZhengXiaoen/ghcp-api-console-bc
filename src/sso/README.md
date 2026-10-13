@@ -130,14 +130,15 @@ docker run --rm -p 7001:7001 --env-file src/sso/.env.example ghcp-sso
 | `SSO_DEFAULT_USER_PASSWORD` | 未设置 | 否 | 新用户默认密码；未设置时使用 `ssoUser`。只从环境变量读取，不进入 DB 或 Console。 |
 | `SSO_USER_EVENTS_LOG` | `./data/sso-user-events.log` | 否 | 追加写入部分用户事件。 |
 | `ENTERPRISE_SLUG` | `acme` | GitHub/SCIM/Copilot 场景必填 | GitHub Enterprise slug；用于 SCIM fallback、Copilot seat、AI Credits、默认 SP entityID。 |
-| `ENTERPRISE_SHORTCODE` | `octo` | GH login fallback 时必填 | SCIM 响应无 `githubLogin` 时生成 `<normalized>_<shortcode>`；`ensure` 也会剥离该后缀。 |
-| `GITHUB_API_BASE_URL` | `https://api.github.com` | Copilot/API 调用时 | Copilot seat 和 AI Credits 的 GitHub API 根地址。 |
+| `ENTERPRISE_SHORTCODE` | `octo` | GitHub.com GH login fallback 时必填 | SCIM 响应无 `githubLogin` 时生成 `<normalized>_<shortcode>`（总长 ≤39）；`ensure` 也会剥离该后缀。GHE.com 模式（`GITHUB_BASE_URL` 为 `*.ghe.com`）下忽略：shortcode 被隐藏，GHE.com API 拒绝带后缀的用户名，GH login 直接为 `<normalized>`（≤30 字符）。 |
+| `GITHUB_BASE_URL` | `https://github.com` | GHE.com 必填 | GitHub Web origin；host 以 `.ghe.com` 结尾时为 GHE.com 模式（忽略 `ENTERPRISE_SHORTCODE`）。也用于 `SP_ENTITY_ID` 的兜底值。 |
+| `GITHUB_API_BASE_URL` | `https://api.github.com` | Copilot/API 调用时 | Copilot seat 和 AI Credits 的 GitHub API 根地址；GHE.com 为 `https://api.<sub>.ghe.com`。 |
 | `GITHUB_COPILOT_SEAT_PAT` | 未设置 | Copilot seat / AI Credits 必填 | Bearer token；代码不在启动时强校验，调用相关功能时校验。 |
-| `SCIM_BASE_URL` | 空字符串 | 真实 SCIM 必填 | GitHub SCIM base URL；为空时使用 `MOCK_GITHUB_BASE_URL/scim/v2/enterprises/{ENTERPRISE_SLUG}`。 |
+| `SCIM_BASE_URL` | 空字符串 | 真实 SCIM 必填 | GitHub SCIM base URL；为空时使用 `MOCK_GITHUB_BASE_URL/scim/v2/enterprises/{ENTERPRISE_SLUG}`。GHE.com 为 `https://api.<sub>.ghe.com/scim/v2/enterprises/<slug>`。 |
 | `SCIM_TOKEN` | 空字符串 | SCIM 调用必填 | SCIM Bearer token；代码不在启动时强校验。 |
 | `CERT_DIR` | `../../certs` | SAML 启动必填 | 目录中必须有 `idp-cert.pem`、`idp-key.pem`。`.env.example` 示例为 `../../certs`。 |
-| `SP_ENTITY_ID` | 空字符串 | 真实 GitHub SAML 建议配置 | 为空时 fallback 为 `https://github.com/enterprises/{ENTERPRISE_SLUG}`。 |
-| `SP_ACS_URL` | 空字符串 | 真实 GitHub SAML 必填 | 为空时 fallback 到 mock GitHub ACS。 |
+| `SP_ENTITY_ID` | 空字符串 | 真实 GitHub SAML 建议配置 | 为空时 fallback 为 `{GITHUB_BASE_URL}/enterprises/{ENTERPRISE_SLUG}`。GHE.com 为 `https://<sub>.ghe.com/enterprises/<slug>`。 |
+| `SP_ACS_URL` | 空字符串 | 真实 GitHub SAML 必填 | 为空时 fallback 到 mock GitHub ACS。GHE.com 为 `https://<sub>.ghe.com/enterprises/<slug>/saml/consume`。 |
 
 用户上限、用户名 fallback、默认邮箱域、SCIM 限流/重试和 `sync_emu` 并发保存在 `sso_runtime_settings`，通过 Console Settings 页面保存后对下一次操作生效。
 
@@ -265,7 +266,7 @@ EMU import row 状态当前支持：`pending_create`、`pending_update`、`creat
 | `src/users/service.ts` | 用户生命周期、SCIM 同步、导入计划、batch、proxy 清理的核心业务逻辑。 |
 | `src/users/bulkImport.ts` | 简单 CSV 解析，支持 header、去重和错误收集。 |
 | `src/scim/scimClient.ts` | SCIM create/update/list/suspend/delete、鉴权、重试、节流。 |
-| `src/scim/handle.ts` | 从 `ssoUser` 和 enterprise shortcode 推导 GH login。 |
+| `src/scim/handle.ts` | 从 `ssoUser` 和 enterprise shortcode 推导 GH login；GHE.com 模式下不带后缀。 |
 | `src/copilot/seats.ts` | GitHub Copilot selected users assign/remove，以及 Enterprise seat 列表分页查询。 |
 | `src/budget/budgetService.ts` | AI Credits usage 查询、缓存和投影计算。 |
 | `src/routes/budgetApi.ts` | AI Credits cache 读取/刷新 API。 |

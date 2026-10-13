@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { parseGithubBaseUrl } from '@ghcp/shared';
 
 export interface ProxyConfig {
   port: number;
@@ -17,6 +18,7 @@ export interface ProxyConfig {
   internalApiToken: string;
   ssoBaseUrl: string;
   loginBaseUrl: string;
+  /** Effective EMU login suffix stripped from new identities; always empty on GHE.com. */
   enterpriseShortcode: string;
   requestStatsPerAccountLimit: number;
   errorDiagnosticsEnabled: boolean;
@@ -48,7 +50,10 @@ export const config: ProxyConfig = {
   internalApiToken: process.env.INTERNAL_API_TOKEN ?? '',
   ssoBaseUrl: process.env.SSO_BASE_URL ?? 'http://localhost:7001',
   loginBaseUrl: process.env.LOGIN_BASE_URL ?? 'http://localhost:7003',
-  enterpriseShortcode: readOptionalString(process.env.ENTERPRISE_SHORTCODE) ?? 'octo',
+  // GHE.com logins carry no visible shortcode suffix, so ENTERPRISE_SHORTCODE is ignored there.
+  enterpriseShortcode: parseGithubBaseUrl(process.env.GITHUB_BASE_URL).isGheCom
+    ? ''
+    : readOptionalString(process.env.ENTERPRISE_SHORTCODE) ?? 'octo',
   requestStatsPerAccountLimit: readPositiveInteger(process.env.REQUEST_STATS_PER_ACCOUNT_LIMIT, 2),
   errorDiagnosticsEnabled: readBoolean(process.env.PROXY_ERROR_DIAGNOSTICS_ENABLED, true),
   errorDiagnosticsDir: readOptionalString(process.env.PROXY_ERROR_DIAGNOSTICS_DIR) ?? './data/error-diagnostics',

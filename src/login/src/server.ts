@@ -28,5 +28,7 @@ export function startServer(): void {
   recoverLoginOutcomes();
   buildApp().listen(config.port, () => {
     console.log(`[login] listening on http://localhost:${config.port}`);
+    const { github } = config.auth;
+    console.log(`[login] GitHub: ${github.baseUrl}${github.isGheCom ? ` (GHE.com, enterprise SSO ${github.enterpriseSsoUrl})` : ''}`);
   });
 }

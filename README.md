@@ -61,7 +61,7 @@ Client
 
 部署前需要准备：
 
-1. **GitHub Enterprise 订阅**，并启用 Enterprise Managed Users(EMU)。
+1. **GitHub Enterprise 订阅**，并启用 Enterprise Managed Users(EMU)。支持 GitHub.com 和 GHE.com（GitHub Enterprise Cloud with data residency）。
 2. **GitHub Copilot 可用授权**，并准备可管理 Copilot seat / AI Credits 的 GitHub PAT。
 3. **GitHub Enterprise SAML SSO 配置权限**，可以把企业 SAML SSO 指向本项目的 `sso` 服务或你自己的 SSO/IdP。
 4. **GitHub SCIM token**，用于 `sso` 服务批量创建、更新、暂停、删除 EMU 用户。
@@ -110,6 +110,7 @@ Login runtime settings：
 
 ```bash
 cp .env.example .env
+# GHE.com（data residency）使用：cp .env.example.data-residency .env
 ```
 
 至少需要替换：
@@ -121,7 +122,8 @@ cp .env.example .env
 | `SESSION_SECRET` | `sso` / `console` cookie session 签名密钥。 |
 | `SSO_PUBLIC_BASE_URL` | `sso` 服务对 GitHub 可访问的公网地址。 |
 | `SP_ENTITY_ID` / `SP_ACS_URL` | GitHub Enterprise SAML SP 配置。 |
-| `ENTERPRISE_SLUG` / `ENTERPRISE_SHORTCODE` | GitHub Enterprise 标识和 EMU login 后缀。 |
+| `GITHUB_BASE_URL` | GitHub Web 地址，默认 `https://github.com`；GHE.com 填 `https://<subdomain>.ghe.com`。Login、SSO、Proxy 都据此判断是否为 GHE.com 模式。 |
+| `ENTERPRISE_SLUG` / `ENTERPRISE_SHORTCODE` | GitHub Enterprise 标识和 GitHub.com EMU login 后缀（GH login = `<ssoUser>_<shortcode>`）。GHE.com 模式下忽略 `ENTERPRISE_SHORTCODE`：shortcode 被隐藏，且 GHE.com API 拒绝带后缀的用户名，因此 GH login 直接为 `<ssoUser>`（最长 30 字符）。 |
 | `SCIM_BASE_URL` / `SCIM_TOKEN` | GitHub Enterprise SCIM API 地址和 token。 |
 | `GITHUB_COPILOT_SEAT_PAT` | 管理 Copilot seat / AI Credits 的 GitHub PAT。 |
 | `SSO_DEFAULT_USER_PASSWORD` | 新建 SSO 用户的默认密码；为空时使用用户名。该值不会进入运行时设置数据库。 |
@@ -145,13 +147,15 @@ cp .env.example .env
 | `PROXY_ERROR_DIAGNOSTICS_SHARED` / `PROXY_INSTANCE_ID` | 多 Proxy Pod 使用 RWX 诊断卷时启用；每个 Pod 使用独立实例目录，管理接口聚合读取。 |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_SCOPE` | Login 使用的 OpenCode OAuth client 和 Device Flow scope。 |
 | `OPENCODE_VERSION` / `OPENCODE_USER_AGENT` | Login 与 Proxy 请求使用的 OpenCode User-Agent；显式 User-Agent 优先。 |
-| `COPILOT_API_BASE_URL` | Copilot API 地址；GitHub.com 默认 `https://api.githubcopilot.com`。 |
-| `GITHUB_API_BASE_URL` | SSO 调用 GitHub Copilot seat 和 AI Credits API 的根地址，默认 `https://api.github.com`。 |
+| `COPILOT_API_BASE_URL` | Copilot API 地址；GitHub.com 默认 `https://api.githubcopilot.com`，GHE.com 为 `https://copilot-api.<subdomain>.ghe.com`。 |
+| `GITHUB_API_BASE_URL` | SSO 调用 GitHub Copilot seat 和 AI Credits API 的根地址，默认 `https://api.github.com`；GHE.com 为 `https://api.<subdomain>.ghe.com`（`SCIM_BASE_URL` 同理）。 |
 | `GITHUB_API_VERSION` | Copilot 请求的 `X-GitHub-Api-Version`，默认 `2026-06-01`。 |
 | `LOGIN_SSO_URL` | Login 自动化使用的默认 SSO 登录 URL；任务的 `ssoUrl` 可覆盖。Provider 由任务的 `ssoType` 决定，不通过环境变量配置。 |
 | `AUTH_HEADLESS` | Login Playwright 是否无头运行，默认 `true`。 |
 | `LOG_LEVEL` | 所有服务的结构化日志等级：`debug`、`info`、`warn`、`error`。 |
 | `PROXY_PORT` / `SSO_PORT` / `LOGIN_PORT` / `CONSOLE_PORT` | Compose 暴露到宿主机的端口，不会改变容器内服务端口。 |
+
+**GHE.com（data residency）**：复制 `.env.example.data-residency`，把 `sample-ent` 换成实际的子域名和 enterprise slug；无需配置 `ENTERPRISE_SHORTCODE`。GHE.com 上 Login 不输入 GitHub 用户名：它根据 `GITHUB_BASE_URL` 和 `ENTERPRISE_SLUG` 直接打开 `https://<subdomain>.ghe.com/enterprises/<slug>/sso`，点击 Continue，在 SSO 登录页输入 SSO 用户名和密码；回到 GHE 后再完成 Device Flow 填码和授权。GHE.com 的 shortcode 随机生成并隐藏，REST API 也拒绝带后缀的用户名，所以 SSO 和 Proxy 在 GHE.com 模式下忽略 `ENTERPRISE_SHORTCODE`，GH login 直接使用 `<ssoUser>`（GitHub 限制为 30 字符），Copilot 坐席分配和查询都使用这个值。其余只需把 SCIM、GitHub API、SAML 和 Copilot API 地址换成 GHE.com 地址。若之前已用带后缀的 GH login 同步过用户，需在 Console 对这些用户重新执行 Sync to GH，再分配坐席。
 
 各服务完整环境变量表见 [`src/proxy/README.md`](./src/proxy/README.md)、[`src/sso/README.md`](./src/sso/README.md)、[`src/login/README.md`](./src/login/README.md) 和 [`src/console/README.md`](./src/console/README.md)。升级后请在 Console **Settings** 页面确认 SSO/Login 的持久化设置值。
 

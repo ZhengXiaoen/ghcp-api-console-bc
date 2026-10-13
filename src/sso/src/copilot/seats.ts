@@ -202,7 +202,8 @@ function isSeatNotAssignedResponse(status: number, response: unknown): boolean {
   const message = formatResponse(response).toLowerCase();
   if (!message.includes('seat')) return false;
   return (
-    /\bseat assignment\b[^.]{0,120}\buser is not assigned to a seat\b/.test(message)
+    // GitHub reports both "Seat assignment for user X ..." and "One or more seat assignments ...".
+    /\buser is not assigned to a seat\b/.test(message)
     || /\b(?:does|do) not have\b/.test(message)
     || /\bwithout (?:a )?(?:github )?copilot seat\b/.test(message)
     || /\bno (?:github )?copilot seat\b/.test(message)

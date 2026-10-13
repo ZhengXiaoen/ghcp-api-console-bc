@@ -26,7 +26,7 @@ const XSI = 'http://www.w3.org/2001/XMLSchema-instance';
 const idpEntityId = `${config.baseUrl}/metadata`;
 const idpSsoUrl = `${config.baseUrl}/sso`;
 const idpLogoutUrl = `${config.baseUrl}/logout`;
-const spEntityId = config.spEntityId || `https://github.com/enterprises/${config.enterpriseSlug}`;
+const spEntityId = config.spEntityId || `${config.githubBaseUrl}/enterprises/${config.enterpriseSlug}`;
 const spAcsUrl = config.spAcsUrl || `${config.mockGithubBaseUrl}/enterprises/${config.enterpriseSlug}/saml/consume`;
 
 const loginResponseTemplate =

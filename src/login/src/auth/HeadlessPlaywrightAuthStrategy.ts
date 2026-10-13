@@ -7,6 +7,7 @@ import type { RuntimeAuthConfig } from '../config.js';
 import type { AccountLogger } from '../tasks/accountLogger.js';
 import type { AccountCredentials, AuthStrategy } from './types.js';
 import type { DeviceCodeResponse } from './deviceFlow.js';
+import { isGheComSignInPage, isGitHubDeviceAccountSelectionUrl, isGitHubSsoInterstitial, isGitHubUrl } from './githubUrls.js';
 import { HttpApiError } from '@ghcp/shared';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -72,6 +73,8 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
         ssoUsername: this.account.ssoUsername,
         ssoProvider: this.options.ssoProvider,
         ssoUrl: this.options.ssoUrl ? safeUrl(this.options.ssoUrl) : undefined,
+        githubBaseUrl: this.options.github.baseUrl,
+        gheCom: this.options.github.isGheCom,
       });
 
       browser = await chromium.launch({
@@ -103,6 +106,11 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
       page.setDefaultTimeout(this.options.timeoutMs);
       page.setDefaultNavigationTimeout(this.options.timeoutMs);
       this.logNavigations(page);
+
+      if (this.options.github.enterpriseSsoUrl) {
+        stage = 'enterprise-sso-login';
+        await this.completeEnterpriseSsoLogin(page, this.options.github.enterpriseSsoUrl);
+      }
 
       stage = 'open-device-page';
       await this.openDevicePage(page, device);
@@ -144,6 +152,16 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
     }
   }
 
+  private async completeEnterpriseSsoLogin(page: Page, enterpriseSsoUrl: string): Promise<void> {
+    this.logger.info('enterprise-sso', 'Opening GHE.com enterprise SSO page; GitHub username entry is not used', {
+      url: safeUrl(enterpriseSsoUrl),
+    });
+    await page.goto(enterpriseSsoUrl, { waitUntil: 'domcontentloaded', timeout: this.options.timeoutMs });
+    await waitForPageSettle(page);
+    await this.completeSsoLogin(page);
+    this.logger.info('enterprise-sso', 'GHE.com enterprise SSO step finished', { url: safeUrl(page.url()) });
+  }
+
   private async openDevicePage(page: Page, device: DeviceCodeResponse): Promise<void> {
     this.logger.info('device-code', 'Opening GitHub device verification page', {
       url: safeUrl(device.verification_uri),
@@ -163,13 +181,19 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
       return;
     }
 
-    const submittedGithubLogin = await this.completeGitHubLogin(page);
-    if (submittedGithubLogin || this.isSsoUrl(page.url()) || isGitHubSsoInterstitial(page.url()) || this.hasKnownProviderUrl(page.url())) {
+    const submittedGithubLogin = this.options.github.isGheCom ? false : await this.completeGitHubLogin(page);
+    if (
+      submittedGithubLogin
+      || this.isSsoUrl(page.url())
+      || this.isGitHubSsoInterstitial(page.url())
+      || isGheComSignInPage(page.url(), this.options.github)
+      || this.hasKnownProviderUrl(page.url())
+    ) {
       await this.completeSsoLogin(page);
       await this.selectGitHubDeviceAccountIfPresent(page);
     }
 
-    if (!isGitHubUrl(page.url()) && !this.isSsoUrl(page.url())) {
+    if (!this.isGitHubUrl(page.url()) && !this.isSsoUrl(page.url())) {
       throw new Error(`Unexpected external login URL: ${safeUrl(page.url())}`);
     }
   }
@@ -178,7 +202,7 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
     await this.selectGitHubDeviceAccountIfPresent(page);
     if (!(await this.hasDeviceCodeInput(page))) {
       this.logger.info('device-code', 'Waiting for GitHub device code form after login', { url: safeUrl(page.url()) });
-      const reachedGitHub = await this.waitForUrl(page, 'device-code', (url) => isGitHubUrl(url), this.options.timeoutMs);
+      const reachedGitHub = await this.waitForUrl(page, 'device-code', (url) => this.isGitHubUrl(url), this.options.timeoutMs);
       if (!reachedGitHub) {
         throw new Error(`Device code form did not become available; current URL: ${safeUrl(page.url())}`);
       }
@@ -194,7 +218,7 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
       this.logger.info('github-login', 'Already redirected to SSO login', { url: safeUrl(page.url()) });
       return false;
     }
-    if (!isGitHubUrl(page.url())) {
+    if (!this.isGitHubUrl(page.url())) {
       throw new Error(`Expected GitHub login or device page, got ${safeUrl(page.url())}`);
     }
 
@@ -242,7 +266,7 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
       const reachedSsoOrInterstitial = await this.waitForUrl(
         page,
         'sso-login',
-        (url) => this.isSsoUrl(url) || isGitHubSsoInterstitial(url) || this.hasKnownProviderUrl(url),
+        (url) => this.isSsoUrl(url) || this.isGitHubSsoInterstitial(url) || this.hasKnownProviderUrl(url),
         30_000,
       );
       if (!reachedSsoOrInterstitial) {
@@ -275,7 +299,7 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
         break;
     }
 
-    const returnedToGitHub = await this.waitForUrl(page, 'sso-login', (url) => isGitHubUrl(url), this.options.timeoutMs);
+    const returnedToGitHub = await this.waitForUrl(page, 'sso-login', (url) => this.isGitHubUrl(url), this.options.timeoutMs);
     if (!returnedToGitHub) {
       throw new Error(`SSO login did not return to GitHub before timeout; current URL: ${safeUrl(page.url())}`);
     }
@@ -320,7 +344,7 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
   }
 
   private async selectGitHubDeviceAccountIfPresent(page: Page): Promise<void> {
-    if (!isGitHubDeviceAccountSelectionUrl(page.url())) return;
+    if (!isGitHubDeviceAccountSelectionUrl(page.url(), this.options.github)) return;
 
     this.logger.info('github-account', 'Selecting GitHub account for device flow', {
       url: safeUrl(page.url()),
@@ -339,7 +363,7 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
   }
 
   private async continueGitHubSsoIfPresent(page: Page): Promise<void> {
-    if (!isGitHubSsoInterstitial(page.url())) return;
+    if (!this.isGitHubSsoInterstitial(page.url())) return;
 
     this.logger.info('github-sso', 'Continuing from GitHub enterprise SSO page', { url: safeUrl(page.url()) });
     const control = await this.firstVisible(page, 'github-sso', this.githubSsoSubmitCandidates(), 5_000);
@@ -355,12 +379,12 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
   }
 
   private async confirmGitHubAuthorization(page: Page): Promise<void> {
-    if (!isGitHubUrl(page.url())) {
+    if (!this.isGitHubUrl(page.url())) {
       this.logger.info('github-authorize', 'Waiting for GitHub authorization page', { url: safeUrl(page.url()) });
       const returnedToGitHub = await this.waitForUrl(
         page,
         'github-authorize',
-        (url) => isGitHubUrl(url),
+        (url) => this.isGitHubUrl(url),
         this.options.timeoutMs,
       );
       if (!returnedToGitHub) {
@@ -643,6 +667,14 @@ export class HeadlessPlaywrightAuthStrategy implements AuthStrategy {
     ];
   }
 
+  private isGitHubUrl(rawUrl: string): boolean {
+    return isGitHubUrl(rawUrl, this.options.github);
+  }
+
+  private isGitHubSsoInterstitial(rawUrl: string): boolean {
+    return isGitHubSsoInterstitial(rawUrl, this.options.github);
+  }
+
   private isSsoUrl(rawUrl: string): boolean {
     if (!this.options.ssoUrl) return false;
     try {
@@ -749,33 +781,6 @@ function escapedRegExp(text: string): RegExp {
 async function waitForPageSettle(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded', { timeout: 5_000 }).catch(() => undefined);
   await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
-}
-
-function isGitHubDeviceAccountSelectionUrl(rawUrl: string): boolean {
-  try {
-    const url = new URL(rawUrl);
-    return isGitHubUrl(rawUrl) && url.pathname.toLowerCase().includes('/login/device/select_account');
-  } catch {
-    return false;
-  }
-}
-
-function isGitHubSsoInterstitial(rawUrl: string): boolean {
-  try {
-    const url = new URL(rawUrl);
-    return isGitHubUrl(rawUrl) && url.pathname.toLowerCase().includes('/sso');
-  } catch {
-    return false;
-  }
-}
-
-function isGitHubUrl(rawUrl: string): boolean {
-  try {
-    const hostname = new URL(rawUrl).hostname.toLowerCase();
-    return hostname === 'github.com' || hostname.endsWith('.github.com');
-  } catch {
-    return false;
-  }
 }
 
 function safeUrl(rawUrl: string): string {
